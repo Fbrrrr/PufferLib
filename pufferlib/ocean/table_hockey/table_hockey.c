@@ -1,11 +1,11 @@
 #include "table_hockey.h"
 
-const Color PUFF_RED = (Color){187, 0, 0, 255};
-const Color PUFF_CYAN = (Color){0, 187, 187, 255};
-const Color PUFF_WHITE = (Color){241, 241, 241, 255};
-const Color PUFF_BACKGROUND = (Color){6, 24, 24, 255};
-const Color PUFF_GREEN = (Color){0, 187, 0, 255};
-const Color PUFF_BLUE = (Color){0, 100, 187, 255};
+const Color PUFF_RED = {187, 0, 0, 255};
+const Color PUFF_CYAN = {0, 187, 187, 255};
+const Color PUFF_WHITE = {241, 241, 241, 255};
+const Color PUFF_BACKGROUND = {6, 24, 24, 255};
+const Color PUFF_GREEN = {0, 187, 0, 255};
+const Color PUFF_BLUE = {0, 100, 187, 255};
 
 void init(TableHockey* env) {
     env->tick = 0;
@@ -444,18 +444,6 @@ void reset_game(TableHockey* env) {
     env->game_state.total_movement_this_episode = 0.0f;
     env->game_state.in_defensive_zone = false;
     env->game_state.distance_to_puck = 0.0f;
-    env->game_state.prev_puck_x = env->puck.x;
-    env->game_state.prev_puck_y = env->puck.y;
-    env->game_state.player_vel_x = 0.0f;
-    env->game_state.player_vel_y = 0.0f;
-    env->game_state.opponent_vel_x = 0.0f;
-    env->game_state.opponent_vel_y = 0.0f;
-    env->game_state.time_since_last_hit = 0.0f;
-    env->game_state.last_shot_power = 0.0f;
-    env->game_state.consecutive_saves = 0;
-    env->game_state.total_movement_this_episode = 0.0f;
-    env->game_state.in_defensive_zone = false;
-    env->game_state.distance_to_puck = 0.0f;
     
     env->episode_return = 0.0f;
     env->tick = 0;
@@ -463,8 +451,13 @@ void reset_game(TableHockey* env) {
 
 void apply_actions(TableHockey* env) {
     if (env->action_mode == ACTION_CONTINUOUS) {
-        env->player_paddle.vx = env->actions[0] * env->max_paddle_speed;
-        env->player_paddle.vy = env->actions[1] * env->max_paddle_speed;
+        // Safety clamp actions to [-1,1] before scaling
+        float ax = env->actions[0];
+        float ay = env->actions[1];
+        if (ax > 1.0f) ax = 1.0f; else if (ax < -1.0f) ax = -1.0f;
+        if (ay > 1.0f) ay = 1.0f; else if (ay < -1.0f) ay = -1.0f;
+        env->player_paddle.vx = ax * env->max_paddle_speed;
+        env->player_paddle.vy = ay * env->max_paddle_speed;
     } else {
         int player_action = (int)env->actions[0];
         env->player_paddle.vx = 0.0f;
@@ -481,6 +474,14 @@ void apply_actions(TableHockey* env) {
             case 7: env->player_paddle.vx = -env->max_paddle_speed; break; // W
             case 8: env->player_paddle.vx = -env->max_paddle_speed * 0.707f; env->player_paddle.vy = env->max_paddle_speed * 0.707f; break; // NW
         }
+    }
+
+    // Ensure resulting speed does not exceed max_paddle_speed (covers diagonal scaling inaccuracies or oversized continuous inputs)
+    float speed = vector_length(env->player_paddle.vx, env->player_paddle.vy);
+    if (speed > env->max_paddle_speed && speed > 0.0f) {
+        float scale = env->max_paddle_speed / speed;
+        env->player_paddle.vx *= scale;
+        env->player_paddle.vy *= scale;
     }
     
     if (env->render_mode == RENDER_HEADLESS) {
@@ -821,7 +822,7 @@ void draw_ui(TableHockey* env) {
     DrawText(score_text, 10, 10, 20, PUFF_WHITE);
     
     char episode_text[64];
-    snprintf(episode_text, sizeof(episode_text), " ", env->tick, MAX_STEPS);
+    snprintf(episode_text, sizeof(episode_text), "Tick: %d / %d", env->tick, MAX_STEPS);
     DrawText(episode_text, 10, 40, 16, PUFF_WHITE);
     
     if (env->client && env->client->show_debug_info) {
@@ -850,17 +851,6 @@ void init_physics_cache(TableHockey* env) {
     cache->inv_puck_max_speed = 1.0f / PUCK_MAX_SPEED;
     cache->inv_paddle_max_speed = 1.0f / MAX_SPEED;
     cache->collision_dist_squared = (PUCK_RADIUS + PADDLE_RADIUS) * (PUCK_RADIUS + PADDLE_RADIUS);
-
-    for (int i = 0; i < 8; i++) {
-        cache->wall_bounds[i] = 0.0f;
-    }
-    
-    cache->wall_bounds[0] = -TABLE_WIDTH/2;  // left wall
-    cache->wall_bounds[1] = TABLE_WIDTH/2;   // right wall
-    cache->wall_bounds[2] = -TABLE_HEIGHT/2; // bottom wall
-    cache->wall_bounds[3] = TABLE_HEIGHT/2;  // top wall
-    cache->wall_bounds[4] = -GOAL_WIDTH/2;   // goal bottom
-    cache->wall_bounds[5] = GOAL_WIDTH/2;    // goal top
 }
 
 // UTILITY FUNCTIONS
